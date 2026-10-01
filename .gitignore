@@ -1,0 +1,12 @@
+# build output
+bin/
+*.test
+*.out
+coverage.*
+
+# local env / editor
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/

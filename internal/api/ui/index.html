@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jobsched — control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#090b0c; --panel:#0f1214; --panel-2:#141819; --raise:#1a1f21;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+  --text:#e7eaeb; --dim:#828d90; --dimmer:#4a5355;
+  --queued:#6d797c; --running:#4fd6e8; --retrying:#f0a93b;
+  --succeeded:#5fd39a; --failed:#ff6b5b;
+  --accent:#f0a93b;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --serif:'Instrument Serif',Georgia,'Times New Roman',serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{
+  background:var(--ground); color:var(--text);
+  font-family:var(--mono); font-size:13px; line-height:1.5;
+  min-height:100vh; padding:22px 26px 60px;
+  background-image:
+    radial-gradient(1100px 300px at 14% -14%, rgba(240,169,59,.055), transparent 66%),
+    radial-gradient(900px 280px at 90% -10%, rgba(79,214,232,.045), transparent 66%);
+  background-repeat:no-repeat;
+}
+/* fine grain, keeps flat dark from looking plasticky */
+body::after{
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:99; opacity:.032;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.wrap{max-width:1500px;margin:0 auto}
+
+/* ---------- masthead ---------- */
+header{
+  display:flex; align-items:flex-end; justify-content:space-between;
+  gap:32px; flex-wrap:wrap; padding-bottom:16px; margin-bottom:20px;
+  border-bottom:1px solid var(--line-2);
+  animation:rise .6s cubic-bezier(.2,.7,.3,1) both;
+}
+.brand{display:flex;align-items:baseline;gap:14px}
+.brand h1{
+  font-family:var(--serif); font-style:italic; font-weight:400;
+  font-size:44px; line-height:.9; letter-spacing:-.015em;
+}
+.brand .tag{
+  font-size:10px; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--dimmer); padding-bottom:5px;
+}
+.readouts{display:flex; gap:26px; flex-wrap:wrap; padding-bottom:4px}
+.ro{display:flex;flex-direction:column;gap:3px;min-width:64px}
+.ro .k{font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--dimmer)}
+.ro .v{font-size:17px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+.ro .v small{font-size:11px;color:var(--dim);font-weight:400}
+.ro.exec .v{color:var(--accent);font-size:13px;letter-spacing:.06em;padding-top:3px}
+.pulse{
+  display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--succeeded);margin-right:7px;vertical-align:middle;
+  animation:beat 2s ease-in-out infinite;
+}
+.pulse.off{background:var(--failed);animation:none}
+@keyframes beat{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(95,211,154,.5)}50%{opacity:.55;box-shadow:0 0 0 5px rgba(95,211,154,0)}}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* ---------- layout ---------- */
+.grid{display:grid;grid-template-columns:352px minmax(0,1fr);gap:20px;align-items:start}
+@media(max-width:1080px){.grid{grid-template-columns:1fr}}
+
+.panel{
+  background:linear-gradient(180deg,var(--panel-2),var(--panel));
+  border:1px solid var(--line); border-radius:3px;
+  animation:rise .6s cubic-bezier(.2,.7,.3,1) both;
+}
+.panel:nth-of-type(1){animation-delay:.06s}
+.panel:nth-of-type(2){animation-delay:.12s}
+.phead{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 14px;border-bottom:1px solid var(--line);
+}
+.phead h2{font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--dim)}
+.phead .note{font-size:10px;color:var(--dimmer);letter-spacing:.04em}
+
+/* ---------- presets ---------- */
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+.preset{
+  background:var(--panel); border:0; text-align:left; cursor:pointer;
+  padding:11px 12px 12px; font-family:var(--mono); color:var(--text);
+  display:flex;flex-direction:column;gap:4px; transition:background .16s, transform .16s;
+  position:relative; overflow:hidden;
+}
+.preset:hover{background:var(--raise)}
+.preset:active{transform:scale(.985)}
+.preset::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:2px;
+  background:var(--c,var(--dimmer));transform:scaleY(0);transform-origin:top;transition:transform .18s;
+}
+.preset:hover::before{transform:scaleY(1)}
+.preset .pn{font-size:11px;font-weight:700;letter-spacing:.07em;color:var(--c,var(--text))}
+.preset .pd{font-size:10px;color:var(--dim);line-height:1.45}
+
+/* ---------- custom form ---------- */
+details.custom{border-top:1px solid var(--line)}
+details.custom>summary{
+  padding:10px 14px;cursor:pointer;font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--dim);list-style:none;user-select:none;
+  display:flex;align-items:center;gap:8px;
+}
+details.custom>summary::-webkit-details-marker{display:none}
+details.custom>summary::before{content:'+';color:var(--accent);font-weight:700}
+details.custom[open]>summary::before{content:'−'}
+details.custom>summary:hover{color:var(--text)}
+form{padding:2px 14px 14px;display:flex;flex-direction:column;gap:9px}
+label{display:flex;flex-direction:column;gap:4px}
+label .lk{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dimmer)}
+input,textarea{
+  background:var(--ground);border:1px solid var(--line-2);border-radius:2px;
+  color:var(--text);font-family:var(--mono);font-size:12px;padding:7px 9px;width:100%;
+  transition:border-color .16s;
+}
+input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+textarea{resize:vertical;min-height:52px;line-height:1.5}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+button.go{
+  margin-top:3px;background:var(--accent);color:#161009;border:0;border-radius:2px;
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;padding:10px;cursor:pointer;transition:filter .16s,transform .16s;
+}
+button.go:hover{filter:brightness(1.12)}
+button.go:active{transform:scale(.985)}
+
+.flash{
+  margin:0 14px 14px;padding:9px 11px;border-radius:2px;font-size:11px;line-height:1.5;
+  border:1px solid;animation:rise .3s both;
+}
+.flash.err{background:rgba(255,107,91,.09);border-color:rgba(255,107,91,.4);color:#ffb3aa}
+.flash.ok{background:rgba(95,211,154,.08);border-color:rgba(95,211,154,.35);color:#a5e8c8}
+.flash b{color:#fff;font-weight:700}
+
+/* ---------- job list ---------- */
+.jobs{min-height:330px;max-height:calc(100vh - 190px);overflow-y:auto}
+.jobs::-webkit-scrollbar{width:9px}
+.jobs::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:9px}
+.empty{padding:52px 20px;text-align:center;color:var(--dimmer);font-size:12px;line-height:2}
+.empty span{color:var(--accent)}
+
+.job{border-bottom:1px solid var(--line);animation:rise .35s both}
+.job:last-child{border-bottom:0}
+.jrow{
+  display:grid;grid-template-columns:9px 96px 1fr auto auto;gap:12px;align-items:center;
+  padding:10px 14px;cursor:pointer;transition:background .14s;
+}
+.jrow:hover{background:var(--panel-2)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--st)}
+.job.running .dot{animation:beat 1.4s ease-in-out infinite}
+.jid{font-size:11px;color:var(--dim);letter-spacing:.02em}
+.jcmd{
+  font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);
+}
+.pill{
+  font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  padding:3px 7px;border-radius:2px;color:var(--st);
+  background:color-mix(in srgb, var(--st) 13%, transparent);
+  border:1px solid color-mix(in srgb, var(--st) 32%, transparent);
+  white-space:nowrap;
+}
+.att{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.att b{color:var(--text);font-weight:500}
+
+/* ---------- detail ---------- */
+.detail{padding:4px 14px 18px;border-top:1px solid var(--line);background:rgba(0,0,0,.22)}
+.dmeta{display:flex;gap:22px;flex-wrap:wrap;padding:12px 0 14px}
+.dmeta div{display:flex;flex-direction:column;gap:3px}
+.dmeta .k{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--dimmer)}
+.dmeta .v{font-size:12px;font-variant-numeric:tabular-nums}
+.sect{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--dimmer);margin:6px 0 9px;display:flex;gap:10px;align-items:center}
+.sect::after{content:'';flex:1;height:1px;background:var(--line)}
+
+/* timeline */
+.tl{position:relative;padding:2px 0 0}
+.ruler{position:relative;height:15px;border-bottom:1px solid var(--line-2);margin-bottom:7px}
+.tick{position:absolute;top:0;bottom:0;border-left:1px solid var(--line);padding-left:4px;font-size:9px;color:var(--dimmer);white-space:nowrap}
+.trow{position:relative;height:24px;display:flex;align-items:center}
+.trow.wait{height:19px}
+.bar{
+  position:absolute;height:15px;border-radius:1px;min-width:3px;
+  background:var(--st);box-shadow:0 0 12px -2px var(--st);
+  animation:grow .45s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes grow{from{transform:scaleX(.02);opacity:0}to{transform:scaleX(1);opacity:1}}
+.bar{transform-origin:left center}
+.gap{
+  position:absolute;height:7px;border-radius:1px;min-width:2px;
+  background:repeating-linear-gradient(90deg,var(--retrying) 0 3px,transparent 3px 7px);
+  opacity:.75;
+}
+.tlab{
+  position:absolute;font-size:9.5px;color:var(--dim);white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.tlab b{color:var(--text);font-weight:500}
+.tlab .num{color:var(--dimmer);margin-right:6px}
+.tlab.warn b{color:var(--retrying)}
+.tlab.bad b{color:var(--failed)}
+
+pre.logs{
+  background:var(--ground);border:1px solid var(--line);border-radius:2px;
+  padding:9px 11px;font-size:11px;line-height:1.55;color:#c3cbcd;
+  white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto;margin-top:4px;
+}
+pre.logs:empty::before{content:'(no output)';color:var(--dimmer)}
+.err-line{color:#ffb3aa;font-size:11px;margin-top:7px;line-height:1.55}
+footer{margin-top:26px;font-size:10px;color:var(--dimmer);letter-spacing:.05em;line-height:1.9}
+footer b{color:var(--dim);font-weight:400}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <h1>jobsched</h1>
+    <div class="tag">distributed job scheduler</div>
+  </div>
+  <div class="readouts">
+    <div class="ro exec"><div class="k">executor</div><div class="v" id="ro-exec">—</div></div>
+    <div class="ro"><div class="k">workers</div><div class="v"><span id="ro-busy">0</span><small id="ro-wtot">/0</small></div></div>
+    <div class="ro"><div class="k">queued</div><div class="v" id="ro-queue">0</div></div>
+    <div class="ro"><div class="k">running</div><div class="v" id="ro-running">0</div></div>
+    <div class="ro"><div class="k">ok</div><div class="v" id="ro-ok" style="color:var(--succeeded)">0</div></div>
+    <div class="ro"><div class="k">failed</div><div class="v" id="ro-fail" style="color:var(--failed)">0</div></div>
+    <div class="ro"><div class="k">link</div><div class="v" id="ro-link" style="font-size:12px"><span class="pulse"></span>live</div></div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <section class="panel">
+    <div class="phead"><h2>dispatch</h2><span class="note">click to submit</span></div>
+    <div class="presets" id="presets"></div>
+
+    <details class="custom">
+      <summary>custom job</summary>
+      <form id="form">
+        <label><span class="lk">command</span><textarea id="f-cmd" spellcheck="false">echo hello</textarea></label>
+        <label><span class="lk">image</span><input id="f-img" value="alpine:3.20" spellcheck="false"></label>
+        <div class="row3">
+          <label><span class="lk">cpus</span><input id="f-cpu" value="0.5"></label>
+          <label><span class="lk">mem mb</span><input id="f-mem" value="64"></label>
+          <label><span class="lk">attempts</span><input id="f-att" value="1"></label>
+        </div>
+        <div class="row3">
+          <label><span class="lk">priority</span><input id="f-pri" value="0"></label>
+          <label style="grid-column:span 2"><span class="lk">timeout s</span><input id="f-to" value="60"></label>
+        </div>
+        <button class="go" type="submit">dispatch</button>
+      </form>
+    </details>
+    <div id="flash"></div>
+  </section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>jobs</h2>
+      <span class="note" id="jnote">—</span>
+    </div>
+    <div class="jobs" id="jobs">
+      <div class="empty">no jobs yet<br>dispatch one from the <span>left</span></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <b>attempt bars are drawn on a shared linear time axis</b> — each backoff span is measured from the gap between
+  one attempt finishing and the next starting, so the doubling is observed, not asserted.<br>
+  every architectural decision behind this system is recorded in <b>NOTES.md</b>.
+</footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+const PRESETS = [
+  { n:"succeeds", c:"var(--succeeded)", d:"baseline — runs once, exits 0",
+    body:{command:"echo hello from $(hostname)", max_attempts:1, memory_mb:64, cpus:0.5, timeout_seconds:60} },
+  { n:"retry ×4", c:"var(--retrying)", d:"fails every time → 1s · 2s · 4s backoff",
+    body:{command:"echo failing on purpose >&2; exit 1", max_attempts:4, memory_mb:64, cpus:0.5, timeout_seconds:60} },
+  { n:"oom kill", c:"var(--failed)", d:"64 MB limit, allocates forever → killed by kernel",
+    body:{command:"tail /dev/zero", max_attempts:1, memory_mb:64, cpus:0.5, timeout_seconds:60} },
+  { n:"cgroup proof", c:"var(--running)", d:"prints the limits as the kernel sees them",
+    body:{command:"cat /sys/fs/cgroup/cpu.max; cat /sys/fs/cgroup/memory.max", max_attempts:1, memory_mb:64, cpus:0.5, timeout_seconds:60} },
+  { n:"timeout", c:"var(--retrying)", d:"sleeps 300s with a 5s deadline",
+    body:{command:"sleep 300", max_attempts:1, memory_mb:64, cpus:0.5, timeout_seconds:5} },
+  { n:"rejected", c:"var(--failed)", d:"asks for 99 cpus → 400, never queued",
+    body:{command:"echo nope", max_attempts:1, memory_mb:64, cpus:99, timeout_seconds:60} },
+];
+
+const expanded = new Set();
+// #job_xxxx in the URL opens that job, so a timeline can be linked to and survives a reload.
+if (location.hash.startsWith("#job_")) expanded.add(location.hash.slice(1));
+function focusJob(id){
+  expanded.add(id);
+  history.replaceState(null, "", "#" + id);
+}
+const rows = new Map();          // job id -> {el, detail, sig}
+let health = {};
+
+/* ---------- formatting ---------- */
+function dur(ms){
+  if (ms < 0) ms = 0;
+  if (ms < 1000) return Math.round(ms) + "ms";
+  if (ms < 60000) return (ms/1000).toFixed(2) + "s";
+  const m = Math.floor(ms/60000), s = Math.round((ms%60000)/1000);
+  return m + "m " + String(s).padStart(2,"0") + "s";
+}
+const ts = (s) => new Date(s).getTime();
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- submit ---------- */
+async function submit(body){
+  try{
+    const r = await fetch("/jobs", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+    const j = await r.json().catch(()=>({}));
+    if (!r.ok){
+      // Surfacing the server's own message shows admission control rejecting, not clamping.
+      flash("err", "<b>"+r.status+"</b> " + esc(j.error || r.statusText));
+      return;
+    }
+    flash("ok", "<b>accepted</b> " + esc(j.id));
+    focusJob(j.id);   // open the new job's timeline immediately
+    poll();
+  }catch(e){ flash("err", "<b>network</b> " + esc(e.message)); }
+}
+let flashTimer;
+function flash(kind, html){
+  $("flash").innerHTML = '<div class="flash '+kind+'">'+html+'</div>';
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(()=>{ $("flash").innerHTML = ""; }, kind==="err" ? 7000 : 3500);
+}
+
+/* ---------- presets ---------- */
+$("presets").innerHTML = PRESETS.map((p,i)=>
+  '<button class="preset" data-i="'+i+'" style="--c:'+p.c+'">'+
+    '<span class="pn">'+p.n+'</span><span class="pd">'+p.d+'</span></button>').join("");
+$("presets").addEventListener("click", e=>{
+  const b = e.target.closest(".preset"); if(!b) return;
+  submit(PRESETS[+b.dataset.i].body);
+});
+
+$("form").addEventListener("submit", e=>{
+  e.preventDefault();
+  submit({
+    command: $("f-cmd").value,
+    image: $("f-img").value,
+    cpus: parseFloat($("f-cpu").value),
+    memory_mb: parseInt($("f-mem").value,10),
+    max_attempts: parseInt($("f-att").value,10),
+    priority: parseInt($("f-pri").value,10),
+    timeout_seconds: parseInt($("f-to").value,10),
+  });
+});
+
+/* ---------- timeline: the reason this page exists ---------- */
+function timeline(job){
+  const a = job.attempts || [];
+  if (!a.length) return '<div class="sect">timeline</div><div class="empty" style="padding:16px 0;text-align:left">waiting for first attempt…</div>';
+
+  const t0 = ts(a[0].started_at);
+  // End of axis: last attempt's end, or the pending retry's due time if it is still waiting.
+  let end = ts(a[a.length-1].finished_at);
+  if (job.status === "retrying" && job.next_attempt_at) end = Math.max(end, ts(job.next_attempt_at));
+  const span = Math.max(end - t0, 1);
+  const pct = (ms) => (ms / span) * 100;
+
+  // Ruler ticks at a round interval giving 4-6 divisions.
+  const nice = [100,250,500,1000,2000,5000,10000,15000,30000,60000,120000,300000];
+  const step = nice.find(s => span/s <= 6) || 600000;
+  let ruler = "";
+  for (let t = 0; t <= span; t += step){
+    ruler += '<span class="tick" style="left:'+pct(t)+'%">'+dur(t)+'</span>';
+  }
+
+  let out = "";
+  a.forEach((at, i) => {
+    const s = ts(at.started_at), f = ts(at.finished_at);
+    const st = at.error ? "var(--failed)" : "var(--succeeded)";
+    const left = pct(s - t0), width = Math.max(pct(f - s), 0.4);
+
+    let tag = at.exit_code === undefined || at.exit_code === null
+      ? "never ran" : "exit " + at.exit_code;
+    if (at.oom_killed) tag = "oom-killed · exit " + at.exit_code;
+    const bad = at.error ? " bad" : "";
+
+    // Label sits after the bar, unless the bar is far right — then before it.
+    const flip = left + width > 68;
+    const lab = flip
+      ? 'right:'+(100-left)+'%;padding-right:9px;text-align:right'
+      : 'left:'+(left+width)+'%;padding-left:9px';
+
+    out += '<div class="trow">'+
+      '<span class="bar" style="--st:'+st+';left:'+left+'%;width:'+width+'%;animation-delay:'+(i*60)+'ms"></span>'+
+      '<span class="tlab'+bad+'" style="'+lab+'"><span class="num">#'+at.number+'</span>'+
+        dur(f-s)+' · <b>'+esc(tag)+'</b></span>'+
+    '</div>';
+
+    // The wait between this attempt finishing and the next starting — measured, not configured.
+    const next = a[i+1];
+    if (next){
+      const gs = pct(f - t0), gw = Math.max(pct(ts(next.started_at) - f), 0.3);
+      out += '<div class="trow wait">'+
+        '<span class="gap" style="left:'+gs+'%;width:'+gw+'%"></span>'+
+        '<span class="tlab warn" style="left:'+(gs+gw)+'%;padding-left:9px">backoff <b>'+
+          dur(ts(next.started_at) - f)+'</b></span>'+
+      '</div>';
+    } else if (job.status === "retrying" && job.next_attempt_at){
+      const gs = pct(f - t0), gw = Math.max(pct(ts(job.next_attempt_at) - f), 0.3);
+      const remain = ts(job.next_attempt_at) - Date.now();
+      out += '<div class="trow wait">'+
+        '<span class="gap" style="left:'+gs+'%;width:'+gw+'%"></span>'+
+        '<span class="tlab warn" style="left:'+(gs+gw)+'%;padding-left:9px">retry in <b>'+
+          dur(remain)+'</b></span>'+
+      '</div>';
+    }
+  });
+
+  return '<div class="sect">timeline · '+dur(span)+' total</div>'+
+    '<div class="tl"><div class="ruler">'+ruler+'</div>'+out+'</div>';
+}
+
+function detailHTML(job){
+  const a = job.attempts || [];
+  const last = a[a.length-1];
+  const meta = [
+    ["image", job.spec.image],
+    ["cpus", job.spec.cpus],
+    ["memory", job.spec.memory_mb+" MB"],
+    ["attempts", job.attempts_used+" / "+job.spec.max_attempts],
+    ["priority", job.spec.priority],
+    ["timeout", job.spec.timeout_seconds+"s"],
+  ].map(([k,v])=>'<div><span class="k">'+k+'</span><span class="v">'+esc(v)+'</span></div>').join("");
+
+  let logs = "";
+  if (last){
+    logs = '<div class="sect">output · attempt #'+last.number+'</div>'+
+           '<pre class="logs">'+esc(last.logs || "")+'</pre>';
+    if (last.container_id) logs += '<div class="err-line" style="color:var(--dimmer)">ran as '+esc(last.container_id)+'</div>';
+  }
+  const err = job.last_error ? '<div class="err-line">'+esc(job.last_error)+'</div>' : "";
+
+  return '<div class="detail"><div class="dmeta">'+meta+'</div>'+
+    '<div class="sect">command</div><pre class="logs">'+esc(job.spec.command)+'</pre>'+
+    err + timeline(job) + logs + '</div>';
+}
+
+/* ---------- keyed render, so rows do not flicker at 1 Hz ---------- */
+function render(jobs){
+  const box = $("jobs");
+  if (!jobs.length){
+    if (!box.querySelector(".empty"))
+      box.innerHTML = '<div class="empty">no jobs yet<br>dispatch one from the <span>left</span></div>';
+    rows.clear(); return;
+  }
+  const first = box.querySelector(".empty");
+  if (first) { box.innerHTML = ""; }
+
+  const seen = new Set();
+  let prev = null;
+  for (const job of jobs){
+    seen.add(job.id);
+    let r = rows.get(job.id);
+    if (!r){
+      const el = document.createElement("div");
+      el.className = "job";
+      el.innerHTML = '<div class="jrow">'+
+        '<span class="dot"></span><span class="jid"></span><span class="jcmd"></span>'+
+        '<span class="att"></span><span class="pill"></span></div>';
+      el.querySelector(".jrow").addEventListener("click", ()=>{
+        if (expanded.has(job.id)) { expanded.delete(job.id); }
+        else { focusJob(job.id); }
+        poll();
+      });
+      r = {el, sig:"", det:null};
+      rows.set(job.id, r);
+    }
+    const st = "var(--"+job.status+")";
+    r.el.style.setProperty("--st", st);
+    r.el.className = "job " + job.status;
+
+    // Only touch the DOM when something actually changed.
+    const sig = [job.status, job.attempts_used, job.last_error, expanded.has(job.id),
+                 job.next_attempt_at, (job.attempts||[]).length].join("|");
+    if (sig !== r.sig){
+      r.sig = sig;
+      r.el.querySelector(".jid").textContent = job.id.replace("job_","").slice(0,10);
+      r.el.querySelector(".jcmd").textContent = job.spec.command;
+      r.el.querySelector(".pill").textContent = job.status;
+      r.el.querySelector(".att").innerHTML = "<b>"+job.attempts_used+"</b>/"+job.spec.max_attempts;
+      if (r.det){ r.det.remove(); r.det = null; }
+      if (expanded.has(job.id)){
+        const d = document.createElement("div");
+        d.innerHTML = detailHTML(job);
+        r.det = d.firstElementChild;
+        r.el.appendChild(r.det);
+      }
+    } else if (r.det && job.status === "retrying"){
+      // Countdown keeps ticking between polls.
+      const lab = r.det.querySelector(".trow.wait:last-of-type .tlab b");
+      if (lab && job.next_attempt_at) lab.textContent = dur(ts(job.next_attempt_at) - Date.now());
+    }
+
+    // Keep DOM order matching newest-first order.
+    const want = prev ? prev.nextSibling : box.firstChild;
+    if (r.el !== want) box.insertBefore(r.el, want);
+    prev = r.el;
+  }
+  for (const [id, r] of rows) if (!seen.has(id)) { r.el.remove(); rows.delete(id); }
+}
+
+/* ---------- poll ---------- */
+async function poll(){
+  try{
+    const [hr, jr] = await Promise.all([fetch("/healthz"), fetch("/jobs?limit=40")]);
+    health = await hr.json();
+    const data = await jr.json();
+    const jobs = data.jobs || [];
+
+    $("ro-exec").textContent = (health.executor || "?").toUpperCase();
+    $("ro-wtot").textContent = "/" + (health.workers ?? 0);
+    $("ro-queue").textContent = health.queue_pending ?? 0;
+    const by = (s) => jobs.filter(j=>j.status===s).length;
+    $("ro-busy").textContent = by("running");
+    $("ro-running").textContent = by("running") + by("retrying");
+    $("ro-ok").textContent = by("succeeded");
+    $("ro-fail").textContent = by("failed");
+    $("jnote").textContent = data.count + (data.total > data.count ? " of " + data.total : "") + " shown";
+    $("ro-link").innerHTML = '<span class="pulse"></span>live';
+
+    render(jobs);
+  }catch(e){
+    $("ro-link").innerHTML = '<span class="pulse off"></span>down';
+  }
+}
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

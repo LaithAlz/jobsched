@@ -1,0 +1,78 @@
+# Local observability stack: the scheduler, Prometheus scraping it, and Grafana with a
+# provisioned dashboard.
+#
+# SECURITY: the scheduler mounts the host Docker socket, which is equivalent to giving it root
+# on the host (NOTES.md D-044). Everything binds to 127.0.0.1 and there is no authentication
+# anywhere in this stack. This is a local development tool. Do not expose it to a network.
+#
+#   docker compose up --build     start everything
+#   docker compose down -v        stop and discard all metric history
+
+services:
+  scheduler:
+    build: .
+    # Root is required to talk to the bind-mounted Docker socket; the image's default
+    # unprivileged user cannot open it (see the Dockerfile note).
+    user: root
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # D-032's discovery falls through to this path inside the container. Docker resolves it
+      # inside its own VM on macOS, so the same line works on macOS and Linux.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      SCHED_ADDR: ":8080"
+      SCHED_WORKERS: "4"
+      SCHED_QUEUE_CAPACITY: "256"
+      SCHED_BACKOFF_BASE: "1s"
+      SCHED_JOB_NETWORK: "none"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Enables the "Reload" endpoint so prometheus.yml edits do not need a restart.
+      - --web.enable-lifecycle
+    depends_on:
+      - scheduler
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # Provisioned from files so the dashboard is part of the repo, not a manual setup step
+      # that is lost on `compose down -v` (D-045).
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      # Anonymous admin so the dashboard opens without a login prompt. Acceptable ONLY because
+      # this stack is localhost-only (D-045). A deployed Grafana must have real auth.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: "dark"
+      # Open straight on the jobsched dashboard rather than the Grafana home page.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/jobsched.json"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

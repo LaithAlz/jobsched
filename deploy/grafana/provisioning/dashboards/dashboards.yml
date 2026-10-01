@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: jobsched
+    orgId: 1
+    type: file
+    disableDeletion: false
+    # The file is the source of truth (D-045): UI edits do not persist across restarts.
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,27 @@
+global:
+  # 5s rather than the 15s default: this demo's jobs finish in seconds, and at 15s a whole
+  # burst can start and end between two scrapes. See NOTES.md D-047.
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: jobsched
+    static_configs:
+      # Resolved over the compose network. D-040 puts /metrics on the API port.
+      - targets: ["scheduler:8080"]
+
+  # The Kubernetes-mode scheduler runs on the host, because kind's kubeconfig points at
+  # 127.0.0.1 and means something different inside a container (D-049, D-063).
+  #
+  # EXPECTED: whichever scheduler is not currently running shows as a DOWN target. That is not
+  # a fault. Metric names are identical across executors (D-060), so the `job` label is what
+  # separates them — and both can run at once to compare backends on the same dashboard.
+  - job_name: jobsched-k8s
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+
+  # Prometheus scraping itself — useful for confirming the stack is alive even when the
+  # scheduler is down.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

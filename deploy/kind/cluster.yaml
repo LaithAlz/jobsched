@@ -1,0 +1,10 @@
+# Single-node kind cluster for jobsched.
+#
+# Single node on purpose: the brief scopes out multi-node clusters, and job scheduling behaviour
+# here does not depend on node count — one node still exercises the full Job -> Pod -> container
+# lifecycle, resource limits, and cgroup enforcement.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: jobsched
+nodes:
+  - role: control-plane
