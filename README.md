@@ -1,4 +1,4 @@
-# jobsched — a distributed job scheduler
+# jobsched: a distributed job scheduler
 
 A Go service that accepts jobs (a shell command plus CPU/memory limits), queues them by priority,
 runs each in an isolated Docker container with kernel-enforced resource limits, and retries failures
@@ -12,6 +12,16 @@ Kubernetes execution via client-go against a local kind cluster.
 
 **See it running:** `make stack-up`, then open <http://localhost:8080> for the control UI and
 <http://localhost:3000> for the Grafana dashboard.
+
+## What the measurements showed
+
+I expected the scheduler to be the bottleneck. It was not.
+
+- The scheduler's own cost is **38 µs per job** (p50). Starting a pod takes about **12 s**.
+- My first suspect was client-go's default rate limit. Raising it removed the throttling warnings and did not change throughput.
+- The control experiment: the same workload through Kubernetes' own Job controller, with this scheduler out of the path, ran at the same rate. The ceiling is pod creation on the node, not the scheduling code.
+
+The full numbers are in [Measured performance](#measured-performance).
 
 ---
 
